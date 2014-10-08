@@ -42,7 +42,9 @@ target.build = ->
   modules = (env['MODULES'] || 'zepto event ajax form ie').split(' ')
   module_files = ( "src/#{module}.js" for module in modules )
   intro = "/* Zepto #{describe_version()} - #{modules.join(' ')} - zeptojs.com/license */\n"
-  dist = (intro + cat(module_files).replace(/^\/[\/*].*$/mg, '')).replace(/\n{3,}/g, "\n\n")
+  wrap_start = "zepto = \n(function () {\n\n"
+  wrap_end   = ";\n\n  return Zepto;\n})();"
+  dist = (intro + wrap_start + cat(module_files).replace(/^\/[\/*].*$/mg, '') + wrap_end).replace(/\n{3,}/g, "\n\n")
   dist.to(zepto_js)
   report_size(zepto_js)
 
