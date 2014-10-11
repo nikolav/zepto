@@ -15,32 +15,35 @@ var CHILDREN                = 'children';
 var COMPAREDOCUMENTPOSITION = 'compareDocumentPosition';
 var CONTAINS                = 'contains';
 var DISPATCHEVENT           = 'dispatchEvent';
+var FRAGMENTTHROWS          = 'fragmentThrows';
 var REMOVEEVENTLISTENER     = 'removeEventListener';
 
-var globals = q.globals;
+var FIELD_PREV_SELECTOR_ENGINE = qmark + '.q.zepto.qsa';
 
-var lodash    = q._;
-var modernize = globals['Modernizr'] || {};
+var lodash  = q._;
 
 var afilter          = q.arr.filter;
 var amap             = q.arr.map;
 var aslice           = q.arr.slice;
 var aslice_          = q.arr.slice_;
-var callback_true    = q.func.fntrue;
+var asome            = q.arr.some;
+var corapply         = q.func.corapply;
 var corbind          = q.func.corbind;
+var corcall          = q.func.corcall;
 var coreach          = lodash.each;
 var corindexof       = q.arr.index;
 var cortrim          = lodash.trim;
 var createElement    = q.dom.mkel;
-var doce             = q.dem.de;
+var doce             = q.dom.de;
 var getbody          = q.dom.body;
 var getComputedProp  = q.dom.style.prop;
+var hasown           = q.obj.hasown;
 var pA               = q.arr._;
 var paste            = q.obj.paste;
 var toClassString    = q.obj.str;
 
 var supportz = 
-(function () {
+(function (div) {
   
   var s = {};
   
@@ -49,15 +52,57 @@ var supportz =
   s[COMPAREDOCUMENTPOSITION] = COMPAREDOCUMENTPOSITION in doce;
   s[CONTAINS]                = CONTAINS in doce;
   
+  s[FRAGMENTTHROWS]          = false;
+  try {
+    div.innerHTML = ' a <i>b</i> c ';
+  } catch (e) {
+    s[FRAGMENTTHROWS] = true;
+  }
+  
+  
+  
+  div = NULL;
+  
   return s;
-})();
+})(createElement('div'));
 
 var Zepto = (function(supportz) {
+  
   var 
+    
     zepto = {},
+    
     key, $, classList,
+    
+    camelize      = lodash.camelCase, 
+    compact       = lodash.compact, 
+    dasherize     = lodash.kebabCase, 
+    extend        = lodash.extend,
+    isArray       = q.test.isarray,
+    isbool        = q.test.isbool,
+    isFunction    = q.test.isfn,
+    isnumber      = q.test.isnum,
+    isObject      = q.test.isobj,
+    isPlainObject = q.test.isplainobj, 
+    isstr         = q.test.isstr,
+    likeArray     = q.test.isarraylike, 
+    merge         = q.obj.merge,
+    traverseNode  = q.dom.traverse, 
+    type          = q.obj.classof,
+    uniq          = lodash.unique,
+            
     elementDisplay = {},
-    classCache = {},
+    classCache     = {},
+        
+    capitalRE     = q.str.re.upper,
+    fragmentRE    = q.str.re.tags,
+    htmlTagNameRE = q.str.re.htmltagname,
+    rootNodeRE    = /^(?:body|html)$/i,
+    
+    setAttribute = corbind(corcall, setProperty_), 
+    
+    adjacencyOperators = ['after', 'prepend', 'before', 'append'],
+
     cssNumber = {
       'column-count': 1,
       'columns'     : 1,
@@ -66,50 +111,8 @@ var Zepto = (function(supportz) {
       'opacity'     : 1,
       'z-index'     : 1,
       'zoom'        : 1
-    },
-    fragmentRE = /^\s*<(\w+|!)[^>]*>/,
-    singleTagRE = /^<(\w+)\s*\/?>(?:<\/\1>|)$/,
-    tagExpanderRE = /<(?!area|br|col|embed|hr|img|input|link|meta|param)(([\w:]+)[^>]*)\/>/ig,
-    rootNodeRE = /^(?:body|html)$/i,
-    capitalRE = /([A-Z])/g,
-    
-    // special attributes that should be get/set via method calls
-    methodAttributes = ['val', 'css', 'html', 'text', 'data', 'width', 'height', 'offset'],
-    adjacencyOperators = ['after', 'prepend', 'before', 'append'],
-    table = createElement('table'),
-    tableRow = createElement('tr'),
-    containers = {
-      '*'    : createElement('div'),
-      'tbody': table,
-      'td'   : tableRow,
-      'tfoot': table,
-      'th'   : tableRow,
-      'thead': table,
-      'tr'   : createElement('tbody')
-    },
-    readyRE = /complete|loaded|interactive/,
-    simpleSelectorRE = /^[\w-]*$/,
-    
-    class2type = (function c2t (class2type, toClassString) {
-      
-      // boolean number string function array date regexp object error
-      
-      class2type[toClassString(!0)]         = 'boolean';
-      class2type[toClassString('boo')]      = 'string';
-      class2type[toClassString(/boo/)]      = 'regexp';
-      class2type[toClassString(0)]          = 'number';
-      class2type[toClassString([])]         = 'array';
-      class2type[toClassString(c2t)]        = 'function';
-      class2type[toClassString(class2type)] = 'object';
-      class2type[toClassString(new Date)]   = 'date';
-      class2type[toClassString(new Error)]  = 'error';
-      
-      return class2type;
-    })({}, toClassString),
-    
-    camelize   = lodash.camelCase, 
-    uniq       = lodash.unique,
-    tempParent = createElement('div'),
+      },
+
     propMap = {
       'cellpadding'    : 'cellPadding',
       'cellspacing'    : 'cellSpacing',
@@ -123,19 +126,34 @@ var Zepto = (function(supportz) {
       'rowspan'        : 'rowSpan',
       'tabindex'       : 'tabIndex',
       'usemap'         : 'useMap'
-    },
+      },
     
-    compact       = lodash.compact, 
-    dasherize     = lodash.kebabCase, 
-    extend        = lodash.merge,
-    flatten       = lodash.flatten, 
-    isArray       = q.test.isarray,
-    isFunction    = lodash.isFunction,
-    isObject      = lodash.isObject,
-    isPlainObject = lodash.isPlainObject, 
-    likeArray     = q.test.isarraylike, 
-    traverseNode  = q.dom.traverse, 
+    // Map of attributes that should be set using
+    // node.setAttribute(key, val) instead of node[key] = val.
+    // Used by .setProperties_()
+    setAttributeMap = {
+      'cellpadding' : 'cellPadding',
+      'cellspacing' : 'cellSpacing',
+      'colspan'     : 'colSpan',
+      'frameborder' : 'frameBorder',
+      'height'      : 'height',
+      'maxlength'   : 'maxLength',
+      'role'        : 'role',
+      'rowspan'     : 'rowSpan',
+      'type'        : 'type',
+      'usemap'      : 'useMap',
+      'valign'      : 'vAlign',
+      'width'       : 'width'
+      },
     
+    innerhtml = supportz[FRAGMENTTHROWS] ?
+      (function (node, html) {
+        node.innerHTML = '<br/>' + html + '<br/>';
+        node.removeChild(node.firstChild);
+        node.removeChild(node.lastChild);
+      }) :
+      (function (node, html) { node.innerHTML = '' + html; }),
+        
     grepfmap = {
       'false': function (node, pos, ls) {
         return this.f.apply(this.x, arguments);
@@ -143,116 +161,89 @@ var Zepto = (function(supportz) {
       'true' : function (node, pos, ls) {
         return !this.f.apply(this.x, arguments);
       }
-    };
-  
-  var children = supportz[CHILDREN] ? 
-    (function (node) { return aslice(node[CHILDREN], 0); }): 
-    (function (node) { return afilter(node[CHILDNODES], cb_nodetype1); });
-  
-  zepto.matches = function(element, selector) {
-    if (!selector || !element || element.nodeType !== 1) return false
-    var matchesSelector = element.webkitMatchesSelector || element.mozMatchesSelector ||
-      element.oMatchesSelector || element.matchesSelector
-    if (matchesSelector) return matchesSelector.call(element, selector)
-      // fall back to performing a selector:
-    var match, parent = element.parentNode,
-      temp = !parent
-    if (temp)(parent = tempParent).appendChild(element)
-    match = ~zepto.qsa(parent, selector).indexOf(element)
-    temp && tempParent.removeChild(element)
-    return match
-  }
+      },
+    
+    children = supportz[CHILDREN] ? 
+      (function (node) { return aslice(node[CHILDREN], 0); }): 
+      (function (node) { return afilter(node[CHILDNODES], cb_nodetype1); }), 
+    
+    zeptoEach = corbind(corapply, function (callback, _inputls) {
+      // this: (Zepto) arrlike{}
+      return (_inputls ?
+        asome(this, cbzeptoeach_input, {'zf':callback, 'za':_inputls}) :
+        asome(this, cbzeptoeach_main, callback)), this;
+      });
+    
+    // /var ...
+    
+  zepto.matches = q.dom.matches;
 
   // `$.zepto.fragment` takes a html string and an optional tag name
   // to generate DOM nodes nodes from the given html string.
   // The generated DOM nodes are returned as an array.
   // This function can be overriden in plugins for example to make
   // it compatible with browsers that don't support the DOM fully.
-  zepto.fragment = function(html, name, properties) {
-    var dom, nodes, container
-      // A special case optimization for a single tag
-    if (singleTagRE.test(html)) dom = $(createElement(RegExp.$1))
-    if (!dom) {
-      if (html.replace) html = html.replace(tagExpanderRE, "<$1></$2>")
-      if (name === undefined) name = fragmentRE.test(html) && RegExp.$1
-      if (!(name in containers)) name = '*'
-      container = containers[name]
-      container.innerHTML = '' + html
-      dom = $.each(aslice(container.childNodes, 0), function() {
-        container.removeChild(this)
-      })
-    }
-    if (isPlainObject(properties)) {
-      nodes = $(dom)
-      $.each(properties, function(key, value) {
-        if (methodAttributes.indexOf(key) > -1) nodes[key](value)
-        else nodes.attr(key, value)
-      })
-    }
-    return dom
-  }
-  
+  zepto.fragment = htmlfragment_;
+    
   // `$.zepto.Z` swaps out the prototype of the given `dom` array
   // of nodes with `$.fn` and thus supplying all the Zepto functions
   // to the array. Note that `__proto__` is not supported on Internet
   // Explorer. This method can be overriden in plugins.
-  zepto.Z = function(dom, selector) {
+  zepto.Z = function (dom, selector) {
     
     dom || (dom = []);
     dom.__proto__ = $.fn;
     dom.selector = selector || '';
     
     return dom;
-  }
+    }
+  
   // `$.zepto.isZ` should return `true` if the given object is a Zepto
   // collection. This method can be overriden in plugins.
   zepto.isZ = function(object) {
     return object instanceof zepto.Z
     }
-  // `$.zepto.init` is Zepto's counterpart to jQuery's `$.fn.init` and
-  // takes a CSS selector and an optional context (and handles various
-  // special cases).
-  // This method can be overriden in plugins.
-  zepto.init = function(selector, context) {
-    var dom
-      // If nothing given, return an empty Zepto collection
-    if (!selector) return zepto.Z()
-      // Optimize for string selectors
-    else if (typeof selector == 'string') {
-      selector = selector.trim()
-      // If it's a html fragment, create nodes from it
-      // Note: In both Chrome 21 and Firefox 15, DOM error 12
-      // is thrown if the fragment doesn't begin with <
-      if (selector[0] == '<' && fragmentRE.test(selector))
-        dom = zepto.fragment(selector, RegExp.$1, context), selector = NULL
-        // If there's a context, create a collection on that context first, and select
-        // nodes from there
-      else if (context !== undefined) return $(context).find(selector)
-        // If it's a CSS selector, use it to select nodes.
-      else dom = zepto.qsa(document, selector)
+  
+  // counterpart to jQuery's `$.fn.init` and
+  zepto.init = function (input, refnode) {
+    
+    var dom;
+    
+    if (!input) 
+      return zepto.Z();
+    
+    else if (isstr(input)) {
+
+      if (fragmentRE.test(input))
+        dom = zepto.fragment(input, NULL, refnode), input = NULL;
+      
+      else if (refnode != NULL)
+        return $(refnode).find(input);
+      
+      else 
+        dom = zepto.qsa(input, document);
     }
-    // If a function is given, call it when the DOM is ready
-    else if (isFunction(selector)) return $(document).ready(selector)
-      // If a Zepto collection is given, just return it
-    else if (zepto.isZ(selector)) return selector
+    
+    else if (isFunction(input)) 
+      return $(document).ready(input);
+    
+    else if (zepto.isZ(input)) 
+      return input;
+    
     else {
-      // normalize array if an array of nodes is given
-      if (isArray(selector)) dom = compact(selector)
-        // Wrap DOM nodes.
-      else if (isObject(selector))
-        dom = [selector], selector = NULL
-        // If it's a html fragment, create nodes from it
-      else if (fragmentRE.test(selector))
-        dom = zepto.fragment(selector.trim(), RegExp.$1, context), selector = NULL
-        // If there's a context, create a collection on that context first, and select
-        // nodes from there
-      else if (context !== undefined) return $(context).find(selector)
-        // And last but no least, if it's a CSS selector, use it to select nodes.
-      else dom = zepto.qsa(document, selector)
+      
+      if (isArray(input)) 
+        dom = compact(input);
+      
+      // Wrap an object
+      else
+        dom = [input], input = NULL;
     }
-    // create a new Zepto collection from the nodes found
-    return zepto.Z(dom, selector)
-  }
+    
+    // Zepto collection from the nodes found
+    return zepto.Z(dom, input);
+    };
+  
   // `$` will be the base `Zepto` object. When calling this
   // function just call `$.zepto.init, which makes the implementation
   // details of selecting nodes and creating Zepto collections
@@ -263,54 +254,54 @@ var Zepto = (function(supportz) {
 
   // Copy all but undefined properties from one or more
   // objects to the `target` object.
-  $.extend = function(target) {
-    var deep, args = aslice(arguments, 1)
-    if (typeof target == 'boolean') {
-      deep = target
-      target = args.shift()
+  $.extend = function () { // target[, rest...]
+    
+    var a, deep, target;
+
+    if (
+      (deep = true), 
+      isbool(target = (a = arguments)[0])
+    ) {
+      deep   = corshift(a);
+      target = a[0];
     }
-    args.forEach(function(arg) {
-      extend(target, arg, deep)
-    })
-    return target
-  }
-  // `$.zepto.qsa` is Zepto's CSS selector implementation which
-  // uses `document.querySelectorAll` and optimizes for some special cases, like `#id`.
-  // This method can be overriden in plugins.
-  zepto.qsa = function(element, selector) {
-    var found,
-      maybeID = selector[0] == '#',
-      maybeClass = !maybeID && selector[0] == '.',
-      nameOnly = maybeID || maybeClass ? selector.slice(1) : selector, // Ensure that a 1 char tag name still gets checked
-      isSimple = simpleSelectorRE.test(nameOnly)
-    return (isDocument(element) && isSimple && maybeID) ?
-      ((found = element.getElementById(nameOnly)) ? [found] : []) :
-      (element.nodeType !== 1 && element.nodeType !== 9) ? [] :
-      aslice(
-        isSimple && !maybeID ?
-        maybeClass ? element.getElementsByClassName(nameOnly) : // If it's simple, it could be a class
-        element.getElementsByTagName(selector) : // Or a tag
-        element.querySelectorAll(selector),  // Or it's not simple, and we need to query all
-        0
-      )
-  }
+    
+    return (deep ? merge : extend).apply(NULL, a), target;
+    };
+  
+  // CSS selector engine, Sizzle || QSA
+  zepto.qsa = q.dom.qs;
+  
+  zepto.selectorEngine = function (selectorengine) {
+    
+    if (NULL != selectorengine) {
+      if (isFunction(selectorengine)) {
+        
+        selectorengine[FIELD_PREV_SELECTOR_ENGINE] = zepto.qsa;
+        
+        zepto.qsa = selectorengine;
+      }
+    }
+    
+    return zepto.qsa;
+    };
   
   paste($, {
     
-    'camelCase': camelize,
-    'each': coreach,
-    'expr': {},
-    'grep': basegrep,
-    'isArray': isArray,
-    'isFunction': isFunction,
+    'camelCase'    : camelize,
+    'each'         : coreach,
+    'expr'         : {},
+    'grep'         : basegrep,
+    'isArray'      : isArray,
+    'isFunction'   : isFunction,
     'isPlainObject': isPlainObject,
-    'isWindow': isWindow,
-    'parseJSON': JSON.parse,
-    'support': supportz,
-    'trim': cortrim,
-    'type': type,
-    'uuid': 0,
-    'zepto': zepto,
+    'isWindow'     : isWindow,
+    'parseJSON'    : JSON.parse,
+    'support'      : supportz,
+    'trim'         : cortrim,
+    'type'         : type,
+    'uuid'         : 0,
+    'zepto'        : zepto,
     
     'isEmptyObject': function(node) {
       var field
@@ -320,22 +311,8 @@ var Zepto = (function(supportz) {
     'inArray': function(elem, array, i) {
       return corindexof(array, elem, i);
     },
-
-    'map': function(elements, callback) {
-      var value, values = [],
-        i, key
-      if (likeArray(elements))
-        for (i = 0; i < elements.length; i++) {
-          value = callback(elements[i], i)
-          if (value != NULL) values.push(value)
-        } else
-        for (key in elements) {
-          value = callback(elements[key], key)
-          if (value != NULL) values.push(value)
-        }
-      return flatten(values)
-    }
-  });
+    'map': lodash.map
+    });
 
   $.contains = (function(supportz) {
     // container, element
@@ -368,15 +345,17 @@ var Zepto = (function(supportz) {
     'reduce'  : pA.reduce,
     'sort'    : pA.sort,
     
+    each: function () {
+      return zeptoEach(this, arguments);
+    },
+    
     // `map` and `slice` in the jQuery API work differently
     // from their array counterparts
     map: function(fn) {
-      return $(amap(this, function(el, i) {
-        return fn.call(el, i, el)
-      }))
+      return $(amap(this, function(el, i) { return fn.call(el, i, el); }));
     },
     slice: function () {
-      return $(aslice_(this, arguments))
+      return $(aslice_(this, arguments));
     },
     ready: q.dom.ready,
     get: function(idx) {
@@ -390,35 +369,27 @@ var Zepto = (function(supportz) {
     },
     remove: function() {
       return this.each(function() {
-        if (NULL != this.parentNode)
-          this.parentNode.removeChild(this)
-      })
-    },
-    each: function(callback) {
-      return pA.every.call(this, function(el, idx) {
-        return false !== callback.call(el, idx, el);
-      }), this;
+        (NULL != this.parentNode) && this.parentNode.removeChild(this); 
+      });
     },
     filter: function(selector) {
       if (isFunction(selector)) return this.not(this.not(selector))
-      return $(afilter(this, function(element) {
-        return zepto.matches(element, selector)
-      }))
+      return $(afilter(this, function(element) { return zepto.matches(element, selector); }));
     },
     add: function(selector, context) {
-      return $(uniq(this.concat($(selector, context))))
+      return $(uniq(this.concat($(selector, context))));
     },
-    is: function(selector) {
-      return this.length > 0 && zepto.matches(this[0], selector)
+    is: function (selector) {
+      return (0 < this.length) && zepto.matches(this[0], selector);
     },
-    not: function(selector) {
+    not: function (selector) {
       var nodes = []
-      if (isFunction(selector) && selector.call !== undefined)
+      if (isFunction(selector) && selector.call != NULL)
         this.each(function(idx) {
           if (!selector.call(this, idx)) nodes.push(this)
         })
       else {
-        var excludes = typeof selector == 'string' ? this.filter(selector) :
+        var excludes = isstr(selector) ? this.filter(selector) :
           (likeArray(selector) && isFunction(selector.item)) ? aslice(selector, 0) : $(selector)
         this.forEach(function(el) {
           if (excludes.indexOf(el) < 0) nodes.push(el)
@@ -426,14 +397,14 @@ var Zepto = (function(supportz) {
       }
       return $(nodes)
     },
-    has: function(selector) {
+    has: function (selector) {
       return this.filter(function() {
         return isObject(selector) ?
           $.contains(this, selector) :
           $(this).find(selector).size()
       })
     },
-    eq: function(idx) {
+    eq: function (idx) {
       return idx === -1 ? this.slice(idx) : this.slice(idx, +idx + 1)
     },
     first: function() {
@@ -447,23 +418,23 @@ var Zepto = (function(supportz) {
     find: function(selector) {
       var result, $this = this
       if (!selector) result = []
-      else if (typeof selector == 'object')
+      else if (isObject(selector))
         result = $(selector).filter(function() {
           var node = this
           return pA.some.call($this, function(parent) {
             return $.contains(parent, node)
           })
         })
-      else if (this.length == 1) result = $(zepto.qsa(this[0], selector))
+      else if (this.length == 1) result = $(zepto.qsa(selector, this[0]))
       else result = this.map(function() {
-        return zepto.qsa(this, selector)
+        return zepto.qsa(selector, this)
       })
       return result
     },
     closest: function(selector, context) {
       var node = this[0],
         collection = false
-      if (typeof selector == 'object') collection = $(selector)
+      if (isObject(selector)) collection = $(selector)
       while (node && !(collection ? collection.indexOf(node) >= 0 : zepto.matches(node, selector)))
         node = node !== context && !isDocument(node) && node.parentNode
       return $(node)
@@ -555,9 +526,7 @@ var Zepto = (function(supportz) {
       return this
     },
     clone: function() {
-      return this.map(function() {
-        return this.cloneNode(true)
-      })
+      return this.map(function() {  return this.cloneNode(true) });
     },
     hide: function() {
       return this.css("display", "none")
@@ -565,7 +534,7 @@ var Zepto = (function(supportz) {
     toggle: function(setting) {
       return this.each(function() {
         var el = $(this);
-        (setting === undefined ? el.css("display") == "none" : setting) ? el.show() : el.hide()
+        (setting == NULL ? el.css("display") == "none" : setting) ? el.show() : el.hide()
       })
     },
     prev: function(selector) {
@@ -592,20 +561,20 @@ var Zepto = (function(supportz) {
     },
     attr: function(name, value) {
       var result
-      return (typeof name == 'string' && !(1 in arguments)) ?
+      return (isstr(name) && !(1 in arguments)) ?
         (!this.length || this[0].nodeType !== 1 ? undefined :
           (!(result = this[0].getAttribute(name)) && name in this[0]) ? this[0][name] : result
         ) :
         this.each(function(idx) {
           if (this.nodeType !== 1) return
           if (isObject(name))
-            for (key in name) setAttribute(this, key, name[key])
-          else setAttribute(this, name, funcArg(this, value, idx, this.getAttribute(name)))
+            for (key in name) setAttribute(this, name[key], key)
+          else setAttribute(this, funcArg(this, value, idx, this.getAttribute(name)), name)
         })
     },
     removeAttr: function(name) {
       return this.each(function() {
-        this.nodeType === 1 && setAttribute(this, name)
+        this.nodeType === 1 && setAttribute(this, '', name)
       })
     },
     prop: function(name, value) {
@@ -660,7 +629,7 @@ var Zepto = (function(supportz) {
         var element = this[0],
           computedStyle = getComputedStyle(element, '')
         if (!element) return
-        if (typeof property == 'string')
+        if (isstr(property))
           return element.style[camelize(property)] || computedStyle.getPropertyValue(property)
         else if (isArray(property)) {
           var props = {}
@@ -694,13 +663,12 @@ var Zepto = (function(supportz) {
     index: function(element) {
       return element ? this.indexOf($(element)[0]) : this.parent().children().indexOf(this[0])
     },
-    hasClass: function(name) {
+    hasClass: function (name) {
       if (!name) return false
-      return pA.some.call(this, function(el) {
-        return this.test(className(el))
-      }, classRE(name))
+      return pA.some.call(this, 
+        function(el) { return this.test(className(el)); }, classRE(name))
     },
-    addClass: function(name) {
+    addClass: function (name) {
       if (!name) return this
       return this.each(function(idx) {
         if (!('className' in this)) return
@@ -716,12 +684,12 @@ var Zepto = (function(supportz) {
     removeClass: function(name) {
       return this.each(function(idx) {
         if (!('className' in this)) return
-        if (name === undefined) return className(this, '')
+        if (name == NULL) return className(this, '')
         classList = className(this)
         funcArg(this, name, idx, classList).split(/\s+/g).forEach(function(klass) {
           classList = classList.replace(classRE(klass), " ")
         })
-        className(this, classList.trim())
+        className(this, cortrim(classList))
       })
     },
     toggleClass: function (name, flag) {
@@ -738,7 +706,7 @@ var Zepto = (function(supportz) {
     scrollTop: function(value) {
       if (!this.length) return
       var hasScrollTop = 'scrollTop' in this[0]
-      if (value === undefined) return hasScrollTop ? this[0].scrollTop : this[0].pageYOffset
+      if (value == NULL) return hasScrollTop ? this[0].scrollTop : this[0].pageYOffset
       return this.each(hasScrollTop ?
         function() {
           this.scrollTop = value
@@ -750,7 +718,7 @@ var Zepto = (function(supportz) {
     scrollLeft: function(value) {
       if (!this.length) return
       var hasScrollLeft = 'scrollLeft' in this[0]
-      if (value === undefined) return hasScrollLeft ? this[0].scrollLeft : this[0].pageXOffset
+      if (value == NULL) return hasScrollLeft ? this[0].scrollLeft : this[0].pageXOffset
       return this.each(hasScrollLeft ?
         function() {
           this.scrollLeft = value
@@ -794,17 +762,17 @@ var Zepto = (function(supportz) {
     }
   }
   // for now
-  $.fn.detach = $.fn.remove
+  $.fn.detach = $.fn.remove;
+  
   // Generate the `width` and `height` functions
-  ;
-  ['width', 'height'].forEach(function(dimension) {
+  ;['width', 'height'].forEach(function(dimension) {
     var dimensionProperty =
       dimension.replace(/./, function(m) {
         return m[0].toUpperCase()
       })
     $.fn[dimension] = function(value) {
       var offset, el = this[0]
-      if (value === undefined) return isWindow(el) ? el['inner' + dimensionProperty] :
+      if (value == NULL) return isWindow(el) ? el['inner' + dimensionProperty] :
         isDocument(el) ? el.documentElement['scroll' + dimensionProperty] :
         (offset = this.offset()) && offset[dimension]
       else return this.each(function(idx) {
@@ -812,7 +780,7 @@ var Zepto = (function(supportz) {
         el.css(dimension, funcArg(this, value, idx, el[dimension]()))
       })
     }
-  })
+    })
 
   // Generate the `after`, `prepend`, `before`, `append`,
   // `insertAfter`, `insertBefore`, `appendTo`, and `prependTo` methods.
@@ -870,27 +838,23 @@ var Zepto = (function(supportz) {
   
   // #helpers
   
-  function type (obj) {
-    return (NULL == obj) ? ('' + obj) : (class2type[toClassString(obj)] || "object");
+  function pushStack_ (nodels) {
+    // this: (Zepto) collection{}
   }
-
+  
   function isWindow (obj) {
     return obj != NULL && obj === obj.window;
-  }
-
+    }
   function isDocument (obj) {
     return ~toClassString(obj).toLowerCase().indexOf('document');
-  }
-
+    }
   function classRE (name) {
     return (name in classCache) ? classCache[name] : 
       (classCache[name] = new RegExp('(^|\\s)' + name + '(\\s|$)'))
-  }
-
+    }
   function maybeAddPx (name, value) {
-    return (typeof value == "number" && !cssNumber[dasherize(name)]) ? value + "px" : value
-  }
-  
+    return (isnumber(value) && !cssNumber[dasherize(name)]) ? value + "px" : value
+    }
   function defaultDisplay (nodeName) {
     
     var element, display
@@ -906,27 +870,21 @@ var Zepto = (function(supportz) {
     }
     
     return elementDisplay[nodeName]
-  }
-  
+    }
   function filtered(nodes, selector) {
     return (NULL == selector) ? $(nodes) : $(nodes).filter(selector)
-  }
-  
-  function funcArg(context, arg, idx, payload) {
-    return isFunction(arg) ? arg.call(context, idx, payload) : arg
-  }
-
-  function setAttribute(node, name, value) {
-    (value == NULL) ? node.removeAttribute(name) : node.setAttribute(name, value);
-  }
+    }
+  function funcArg(context, x, idx, payload) {
+    return isFunction(x) ? x.call(context, idx, payload) : x;
+    }
   
   // access className property while respecting SVGAnimatedString
-  function className(node, value) {
+  function className (node, value) {
     var klass = node.className || '',
-      svg = klass && klass.baseVal !== undefined
-    if (value === undefined) return svg ? klass.baseVal : klass
+      svg = klass && klass.baseVal != NULL
+    if (value == NULL) return svg ? klass.baseVal : klass
     svg ? (klass.baseVal = value) : (node.className = value)
-  }
+    }
   
   // "true"  => true
   // "false" => false
@@ -949,12 +907,79 @@ var Zepto = (function(supportz) {
     } catch (e) {
       return value
     }
-  }
-    
+    }
   function basegrep (ls, callback, binverse, context) {
     return afilter(ls, grepfmap[('' + !!binverse)], {
       'f': callback, 'x': context || ls});
-  }
-  
+    }
+  function ishtmltagname (s) {
+    return isstr(s) && htmlTagNameRE.test(s);
+    }
   function cb_nodetype1 (node) { return 1 === node.nodeType; }
+  function setProperty_ (value, field) {
+    // this: (Node) node{}
+    
+    var node = this;
+    
+    if (field == 'style') {
+      node.style.cssText = value;
+    } else if (field == 'class') {
+      node.className = value;
+    } else if (field == 'for') {
+      node.htmlFor = value;
+    } else if (hasown(setAttributeMap, field)) {
+      node.setAttribute(setAttributeMap[field], value);
+    } else if (
+        field.startsWith('aria-') ||
+        field.startsWith('data-')
+      ) {
+      node.setAttribute(field, value);
+    } else {
+      node[field] = value;
+    }
+    }
+  function setProperties_ (node) {
+    // this: (Objetc) properties{}
+    coreach(this, setProperty_, node);
+    }
+  function htmlfragment_ (html, tagname, properties) {
+    
+    var ls = [];
+    var node;
+    
+    var container = ishtmltagname(tagname) ? 
+      createElement(tagname) : (node = createElement('div'));
+    
+    innerhtml(container, html);
+    
+    if (container === node) {
+      for (;container.firstChild; ls.push(container.removeChild(container.firstChild)));
+    } else {
+      ls.push(container);
+    }
+          
+    isPlainObject(properties) && 
+      ls.forEach(setProperties_, properties);
+    
+    container = node = NULL;
+    
+    return ls;
+    }
+  function cbzeptoeach_main (node, pos, z) {
+    return false === this.call(node, pos, node);
+    }
+  function cbzeptoeach_input (node) {
+    return false === this.zf.apply(node, this.za);
+    }
 })(supportz);
+
+
+
+
+// Anchor Applet Area Audio BR Base Body Button Canvas Content DList 
+// Data DataList Directory Div Embed FieldSet Font Form Frame FrameSet 
+// HR Head Heading Html IFrame Image Input LI Label Legend Link Map 
+// Media Menu MenuItem Meta Meter Mod OList Object OptGroup Option 
+// Output Paragraph Param Pre Progress Quote Script Select Shadow Source 
+// Span Style Table TableCaption TableCell TableCol TableRow TableSection 
+// Template TextArea Time Title Track UList Unknown Video
